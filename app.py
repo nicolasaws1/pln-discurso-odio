@@ -23,7 +23,12 @@ st.set_page_config(
 # ================== CARREGAMENTO SPAcy ==================
 @st.cache_resource
 def carregar_spacy():
-    return spacy.load("pt_core_news_sm")
+    import spacy
+    try:
+        return spacy.load("pt_core_news_sm")
+    except Exception:
+        import pt_core_news_sm
+        return pt_core_news_sm.load()
 
 nlp = carregar_spacy()
 
