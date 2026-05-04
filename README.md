@@ -27,28 +27,8 @@ app.py               # app Streamlit de inferência
 - Modelos: `ComplementNB`, `LogisticRegression(class_weight='balanced')`, `LinearSVC(class_weight='balanced')`.
 - Métricas salvas em `models/metrics.json` (accuracy, F1-macro, F1 da classe tóxica, matriz de confusão, classification report).
 
-## Configuração do MongoDB
-
-1. Crie uma conta gratuita em [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas)
-2. Crie um cluster **M0 Free** (gratuito)
-3. Crie um usuário e copie a connection string
-4. Na raiz do projeto, crie um arquivo `.env` baseado no `.env.example`:
-
-```
-MONGO_URI=mongodb+srv://<usuario>:<senha>@cluster0.xxxxx.mongodb.net/?appName=Cluster0
-```
 
 ## Como rodar
-
-```bash
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# Linux/Mac
-source venv/bin/activate
-
-pip install -r requirements.txt
-python -m spacy download pt_core_news_sm
 
 ### 1. Clonar o repositório
 ```bash
