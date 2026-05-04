@@ -50,6 +50,50 @@ source venv/bin/activate
 pip install -r requirements.txt
 python -m spacy download pt_core_news_sm
 
+### 1. Clonar o repositório
+```bash
+git clone https://github.com/nicolasaws1/pln-discurso-odio.git
+cd pln-discurso-odio
+```
+
+### 2. Criar ambiente virtual e instalar dependências
+```bash
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# Linux/Mac
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+### 3. Configurar o MongoDB Atlas
+> ⚠️ **Obrigatório.** O projeto utiliza MongoDB Atlas como banco de dados não relacional para armazenamento e carregamento dos dados de treinamento.
+
+1. Crie uma conta gratuita em [mongodb.com/cloud/atlas](https://www.mongodb.com/cloud/atlas)
+2. Crie um cluster **M0 Free**
+3. Crie um usuário e copie a connection string
+4. Na raiz do projeto, crie um arquivo `.env` baseado no `.env.example`:
+```
+MONGO_URI=mongodb+srv://<usuario>:<senha>@cluster0.xxxxx.mongodb.net/?appName=Cluster0
+```
+
+### 4. Ingerir os dados no MongoDB
+> Rode **apenas uma vez** para popular o banco com os dados do CSV.
+```bash
+python ingest.py
+```
+
+### 5. Treinar os modelos
+```bash
+python train_models.py
+```
+
+### 6. Rodar o app
+```bash
+streamlit run app.py
+```
+
 # Ingestão dos dados no MongoDB (rodar apenas uma vez)
 python ingest.py
 
