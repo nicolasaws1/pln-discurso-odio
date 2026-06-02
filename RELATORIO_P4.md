@@ -183,6 +183,23 @@ Fontes brutas: `outputs_p4/metricas_teste.json`, `outputs_p4/history.json`, `out
 1. **TF-IDF é uma representação bag-of-words** — ignora a ordem das palavras. Isso é especialmente prejudicial para discurso de ódio, onde **negação, sarcasmo e construção sintática** alteram completamente o sentido (compare *"você não é burro"* vs. *"você é burro"*: mesma sacola de palavras, sentidos opostos).
 2. **Capacidade vs. dados:** com ~1,3 M parâmetros para ~12 k exemplos, a MLP **decora** o treino e generaliza pouco — o `EarlyStopping` precisou intervir já na 5ª época. A acurácia de validação trava em ~72%, no mesmo patamar dos modelos clássicos do projeto (LogReg, SVM Linear). Ou seja: **a MLP sobre TF-IDF não traz ganho qualitativo em relação a um linear bem regularizado** — confirmando o ponto teórico de Goodfellow et al. (2016) de que modelos lineares já capturam quase tudo o que um bag-of-words tem a oferecer.
 
+### Comparação com os modelos clássicos do projeto (split 60/20/20)
+
+Para colocar o resultado da MLP em contexto, a tabela abaixo lista o **modelo vencedor por categoria** entre os classificadores clássicos (Naive Bayes Complementar, Regressão Logística e SVM Linear), selecionados na partição de validação 20% e avaliados no teste cego 20% (fonte: `train_models.py` rodado pelo grupo):
+
+| Categoria  | Modelo vencedor      | Acurácia | F1-macro | F1 (tóxico) |
+|------------|----------------------|---------:|---------:|------------:|
+| Homofobia  | Regressão Logística  |   0,9860 |   0,8085 |      0,6242 |
+| Obsceno    | Regressão Logística  |   0,7674 |   0,7437 |      0,6658 |
+| Insulto    | Regressão Logística  |   0,7988 |   0,7219 |      0,5756 |
+| Racismo    | Regressão Logística  |   0,9895 |   0,6425 |      0,2903 |
+| Misoginia  | Regressão Logística  |   0,9593 |   0,6542 |      0,3294 |
+| Xenofobia  | SVM Linear           |   0,9905 |   0,6405 |      0,2857 |
+
+A **Regressão Logística** venceu em 5 das 6 categorias. A acurácia alta nas classes muito desbalanceadas (Homofobia, Racismo, Misoginia, Xenofobia) é parcialmente enganosa — o F1 da classe tóxica nessas mesmas categorias cai para 0,29–0,33, mostrando que o modelo acerta o "não-tóxico" majoritário mas erra metade dos exemplos minoritários.
+
+A MLP testada neste P4 (split 60/20/20, rótulo binário consolidado) atingiu acurácia **0,7269** e F1-macro **0,7237**, faixa equivalente aos clássicos no rótulo binário equivalente — reforçando a conclusão do item (i) de que **a sofisticação do classificador não compensa as limitações da representação TF-IDF**.
+
 ### (ii) Próximos passos para melhorar o modelo
 
 | # | Direção | Por quê |
