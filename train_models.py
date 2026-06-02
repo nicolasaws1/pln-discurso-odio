@@ -44,15 +44,36 @@ def preprocessar_texto(texto):
               and len(token.lemma_) > 2]
     return " ".join(tokens)
 
-# ================== CARREGAR DADOS (MongoDB) ==================
-from db_manager import HateSpeechDB
+# ================== CARREGAR DADOS ==================
+# Por padrao usa MongoDB. Se MONGO_URI nao estiver definido OU pymongo nao
+# estiver instalado, faz fallback automatico para o CSV em Bases_de_dados/.
+# Isso permite reproduzir o treino em qualquer ambiente.
 
-print("Conectando ao MongoDB e carregando dados...")
-db = HateSpeechDB()
-df_train = db.get_split("train", source="ToLD-BR")
-df_test  = db.get_split("test",  source="ToLD-BR")
-df = pd.concat([df_train, df_test], ignore_index=True)
-print(f"Dataset carregado do MongoDB com {len(df)} exemplos.")
+def _carregar_dados_mongodb():
+    from db_manager import HateSpeechDB
+    print("Conectando ao MongoDB e carregando dados...")
+    db = HateSpeechDB()
+    df_train = db.get_split("train", source="ToLD-BR")
+    df_test  = db.get_split("test",  source="ToLD-BR")
+    return pd.concat([df_train, df_test], ignore_index=True)
+
+def _carregar_dados_csv():
+    csv_path = BASE_DIR / "Bases_de_dados" / "ToLD-BR.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(f"CSV nao encontrado: {csv_path}")
+    print(f"Carregando do CSV: {csv_path}")
+    return pd.read_csv(csv_path)
+
+mongo_uri = os.getenv("MONGO_URI", "")
+df = None
+if mongo_uri:
+    try:
+        df = _carregar_dados_mongodb()
+    except Exception as e:
+        print(f"[AVISO] Falha ao carregar do MongoDB ({e!r}). Caindo para CSV...")
+if df is None:
+    df = _carregar_dados_csv()
+print(f"Dataset carregado com {len(df)} exemplos.")
 
 # Converter rótulos para binário (0 = não tóxico, 1 = tóxico)
 for cat in categorias:

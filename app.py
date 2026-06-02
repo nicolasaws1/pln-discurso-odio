@@ -102,25 +102,33 @@ def detectar_linguagem_ofensiva(texto):
     return list(dict.fromkeys(ofensas_encontradas)), score, nivel
 
 # ================== CARREGAMENTO DOS MODELOS ==================
+# Estratégia atual: 1 modelo VENCEDOR por categoria, selecionado em
+# train_models.py via F1-macro no conjunto de validação (split 60/20/20).
+# A informação de qual modelo venceu fica em models/metrics.json sob a
+# chave "__vencedor__" de cada categoria.
 @st.cache_resource
 def carregar_modelos():
-    if not MODELS_DIR.exists():
-        st.error(f"🚨 Pasta '{MODELS_DIR}' não encontrada! Rode primeiro `python train_models.py`.")
+    if not MODELS_DIR.exists() or not METRICS_PATH.exists():
+        st.error(
+            f"🚨 Modelos não encontrados em '{MODELS_DIR}'. "
+            "Rode primeiro `python train_models.py`."
+        )
         st.stop()
 
-    categorias = ['homophobia', 'obscene', 'insult', 'racism', 'misogyny', 'xenophobia']
-    modelos_dict = {}
+    with open(METRICS_PATH, "r", encoding="utf-8") as f:
+        metricas = json.load(f)
 
-    for cat in categorias:
-        modelos_cat = {}
-        for nome in ['Naive Bayes', 'Regressão Logística', 'SVM Linear']:
-            arquivo = MODELS_DIR / f"{nome.lower().replace(' ', '_')}_{cat}.pkl"
-            if arquivo.exists():
-                modelos_cat[nome] = joblib.load(arquivo)
-            else:
-                st.warning(f"Modelo não encontrado: {arquivo.name}")
-        modelos_dict[cat] = modelos_cat
-
+    modelos_dict = {}  # {categoria: {"nome": ..., "pipeline": ...}}
+    for cat, mods in metricas.items():
+        nome_vencedor = mods.get("__vencedor__")
+        if not nome_vencedor:
+            st.warning(f"Categoria '{cat}' sem __vencedor__ no metrics.json.")
+            continue
+        arquivo = MODELS_DIR / f"{nome_vencedor.lower().replace(' ', '_')}_{cat}.pkl"
+        if arquivo.exists():
+            modelos_dict[cat] = {"nome": nome_vencedor, "pipeline": joblib.load(arquivo)}
+        else:
+            st.warning(f"Modelo vencedor não encontrado: {arquivo.name}")
     return modelos_dict
 
 @st.cache_resource
@@ -144,22 +152,19 @@ def _prob_from_pipeline(pipeline, texto_clean):
     return None
 
 def classificar_texto(texto_clean):
-    """Retorna dict {categoria: {modelo: (pred, prob)}} + voto majoritário por categoria."""
+    """Retorna dict {categoria: (pred, prob, nome_modelo)} usando o
+    modelo VENCEDOR de cada categoria. Sem voto majoritário."""
     resultados = {}
-    votos_por_categoria = {}
-    for categoria, mods in modelos_dict.items():
-        resultados[categoria] = {}
-        votos = 0
-        for nome, pipeline in mods.items():
-            try:
-                pred = int(pipeline.predict([texto_clean])[0])
-                prob = _prob_from_pipeline(pipeline, texto_clean)
-                resultados[categoria][nome] = (pred, prob)
-                votos += pred
-            except Exception:
-                resultados[categoria][nome] = (None, None)
-        votos_por_categoria[categoria] = votos  # 0..3
-    return resultados, votos_por_categoria
+    for categoria, info in modelos_dict.items():
+        nome = info["nome"]
+        pipeline = info["pipeline"]
+        try:
+            pred = int(pipeline.predict([texto_clean])[0])
+            prob = _prob_from_pipeline(pipeline, texto_clean)
+            resultados[categoria] = (pred, prob, nome)
+        except Exception:
+            resultados[categoria] = (None, None, nome)
+    return resultados
 
 # ================== DETECÇÃO DE IDEAÇÃO SUICIDA ==================
 ALTO_RISCO = [
@@ -250,23 +255,24 @@ if modo == "🔍 Modo Análise":
                     st.warning(f"**Linguagem Ofensiva Detectada** — Nível: **{nivel_ofensa}** (Score: {score_ofensa})")
                     st.caption(f"Palavras/expressões encontradas: **{', '.join(ofensas)}**")
 
-                # Modelos
+                # Modelos (1 vencedor por categoria, sem voto majoritario)
                 texto_clean = preprocessar_texto(texto_novo)
-                resultados, votos = classificar_texto(texto_clean)
+                resultados = classificar_texto(texto_clean)
 
                 linhas = []
-                toxicas_majoritarias = 0
-                for categoria, mods in resultados.items():
-                    row = {"Categoria": categoria.replace("_", " ").title()}
-                    for nome, (pred, prob) in mods.items():
-                        if pred is None:
-                            row[nome] = "❌ Erro"
-                            continue
+                toxicas = 0
+                for categoria, (pred, prob, nome_modelo) in resultados.items():
+                    row = {"Categoria": categoria.replace("_", " ").title(),
+                           "Modelo": nome_modelo}
+                    if pred is None:
+                        row["Resultado"] = "❌ Erro"
+                    else:
                         label = "Tóxico" if pred == 1 else "Não tóxico"
                         cor = "🔴" if pred == 1 else "🟢"
-                        row[nome] = f"{cor} {label} ({prob:.1%})" if prob is not None else f"{cor} {label}"
-                    if votos[categoria] >= 2:
-                        toxicas_majoritarias += 1
+                        row["Resultado"] = (f"{cor} {label} ({prob:.1%})"
+                                            if prob is not None else f"{cor} {label}")
+                        if pred == 1:
+                            toxicas += 1
                     linhas.append(row)
 
                 st.success("✅ Análise concluída!")
@@ -275,13 +281,13 @@ if modo == "🔍 Modo Análise":
                 st.markdown("### 📊 Resumo da Análise")
                 c1, c2, c3, c4 = st.columns(4)
                 with c1: st.metric("Categorias analisadas", len(linhas))
-                with c2: st.metric("Categorias tóxicas (≥2 modelos)", toxicas_majoritarias,
-                                   delta_color="inverse" if toxicas_majoritarias > 0 else "normal")
+                with c2: st.metric("Categorias tóxicas", toxicas,
+                                   delta_color="inverse" if toxicas > 0 else "normal")
                 with c3: st.metric("Score de Ofensa", score_ofensa)
                 with c4:
-                    if toxicas_majoritarias >= 3 or score_ofensa >= 10:
+                    if toxicas >= 3 or score_ofensa >= 10:
                         risco = "Alto"
-                    elif toxicas_majoritarias >= 1 or score_ofensa >= 5:
+                    elif toxicas >= 1 or score_ofensa >= 5:
                         risco = "Médio"
                     else:
                         risco = "Baixo"
@@ -333,11 +339,11 @@ elif modo == "💬 Modo Chat":
         # Alerta de ideação suicida (tem prioridade, não bloqueia envio)
         nivel = avaliar_risco_suicida(prompt)
 
-        # Ofensa + ódio (voto majoritário entre as 3 classificações por categoria)
+        # Ofensa + ódio (modelo vencedor por categoria, sem voto majoritario)
         ofensas, score_ofensa, _ = detectar_linguagem_ofensiva(prompt)
         texto_clean = preprocessar_texto(prompt)
-        _, votos = classificar_texto(texto_clean)
-        categorias_toxicas = [c for c, v in votos.items() if v >= 2]
+        resultados = classificar_texto(texto_clean)
+        categorias_toxicas = [c for c, (pred, _, _) in resultados.items() if pred == 1]
         toxico_detectado = len(categorias_toxicas) > 0
 
         # Se risco alto de suicídio, não pergunta — envia e exibe alerta CVV
@@ -382,23 +388,32 @@ else:
     if not metricas:
         st.info("Métricas ainda não geradas. Rode `python train_models.py` para criar `models/metrics.json`.")
     else:
+        # Mostra apenas o modelo VENCEDOR por categoria (split 60/20/20).
         linhas = []
         for cat, mods in metricas.items():
-            for nome, m in mods.items():
-                linhas.append({
-                    "Categoria": cat,
-                    "Modelo": nome,
-                    "Acurácia": f"{m['accuracy']:.4f}",
-                    "F1-macro": f"{m['f1_macro']:.4f}",
-                    "F1 (tóxico)": f"{m['f1_toxico']:.4f}",
-                    "Precisão (tóxico)": f"{m['precision_toxico']:.4f}",
-                    "Recall (tóxico)": f"{m['recall_toxico']:.4f}",
-                })
+            vencedor = mods.get("__vencedor__")
+            if not vencedor or vencedor not in mods:
+                continue
+            m = mods[vencedor]
+            # So o vencedor tem as metricas completas (do teste cego).
+            if "accuracy" not in m:
+                continue
+            linhas.append({
+                "Categoria": cat.title(),
+                "Modelo Vencedor": vencedor,
+                "Acurácia": f"{m['accuracy']:.4f}",
+                "F1-macro": f"{m['f1_macro']:.4f}",
+                "F1 (tóxico)": f"{m['f1_toxico']:.4f}",
+                "Precisão (tóxico)": f"{m['precision_toxico']:.4f}",
+                "Recall (tóxico)": f"{m['recall_toxico']:.4f}",
+            })
         st.dataframe(pd.DataFrame(linhas), use_container_width=True, hide_index=True)
 
         st.caption(
-            "F1-macro trata as classes igualmente (adequado a dados desbalanceados). "
-            "Precisão alta = poucos falsos positivos. Recall alto = poucos textos tóxicos passam batido."
+            "Split **60/20/20**: 60% treino, 20% validação (seleção do vencedor por F1-macro) "
+            "e 20% teste cego (métricas reportadas). F1-macro trata as classes igualmente "
+            "(adequado a dados desbalanceados). Precisão alta = poucos falsos positivos. "
+            "Recall alto = poucos textos tóxicos passam batido."
         )
 
 # Rodapé
